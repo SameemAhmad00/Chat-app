@@ -1,0 +1,8 @@
+{
+  "name": "Sameem Chat",
+  "description": "A real-time chat and video calling application built with React and Firebase, inspired by modern messaging apps.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
