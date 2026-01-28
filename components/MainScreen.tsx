@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import firebase from 'firebase/compat/app';
 import { auth, db, storage } from '../services/firebase';
 import type { UserProfile, Contact, FriendRequest, Call, EnrichedContact, Message, CallRecord } from '../types';
-import { MenuIcon, ChatIcon, CogIcon, ArrowUpRightIcon, ArrowDownLeftIcon, VideoIcon, PhoneIcon, ShieldCheckIcon } from './Icons';
+import { MenuIcon, ChatIcon, CogIcon, ArrowUpRightIcon, ArrowDownLeftIcon, VideoIcon, PhoneIcon, ShieldCheckIcon, DownloadIcon } from './Icons';
 import { formatPresenceTimestamp, formatTimestamp, formatCallDuration } from '../utils/format';
 import Avatar from './Avatar';
 import { useTheme } from '../contexts/ThemeContext';
@@ -20,11 +20,13 @@ interface MainScreenProps {
   incomingCall: Call | null;
   onAcceptCall: () => void;
   onRejectCall: () => void;
+  installPrompt: any;
+  onInstallClick: () => void;
 }
 
 type Tab = 'chats' | 'requests' | 'calls';
 
-const MainScreen: React.FC<MainScreenProps> = ({ user, profile, onSelectChat, onStartCall, onNavigateToSettings, onNavigateToAdmin, incomingCall, onAcceptCall, onRejectCall }) => {
+const MainScreen: React.FC<MainScreenProps> = ({ user, profile, onSelectChat, onStartCall, onNavigateToSettings, onNavigateToAdmin, incomingCall, onAcceptCall, onRejectCall, installPrompt, onInstallClick }) => {
   const [activeTab, setActiveTab] = useState<Tab>('chats');
   const [contacts, setContacts] = useState<EnrichedContact[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
@@ -163,7 +165,7 @@ const MainScreen: React.FC<MainScreenProps> = ({ user, profile, onSelectChat, on
       </button>
 
       {isAddFriendModalOpen && <AddFriendModal profile={profile} onClose={() => setAddFriendModalOpen(false)} />}
-      {isProfileModalOpen && <ProfileModal user={user} profile={profile} onClose={() => setProfileModalOpen(false)} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} />}
+      {isProfileModalOpen && <ProfileModal user={user} profile={profile} onClose={() => setProfileModalOpen(false)} onNavigateToSettings={onNavigateToSettings} onNavigateToAdmin={onNavigateToAdmin} installPrompt={installPrompt} onInstallClick={onInstallClick} />}
       {incomingCall && <IncomingCallModal call={incomingCall} onAccept={onAcceptCall} onReject={onRejectCall} />}
       {selectedCallLog && <CallLogDetailModal log={selectedCallLog} onClose={() => setSelectedCallLog(null)} />}
     </div>
@@ -230,22 +232,19 @@ const ChatList: React.FC<{contacts: EnrichedContact[], onSelectChat: (p:Contact)
 const RequestList: React.FC<{requests: FriendRequest[], user: firebase.User, profile: UserProfile}> = ({ requests, user, profile }) => {
     const handleAccept = async (req: FriendRequest) => {
         const updates: {[key: string]: any} = {};
-        // FIX: Use compat version of ref and get.
         const contactProfileSnap = await db.ref(`users/${req.from}`).get();
         const contactProfile = contactProfileSnap.val();
 
         if (contactProfile) {
-          updates[`contacts/${user.uid}/${req.from}`] = { uid: req.from, username: contactProfile.username, photoURL: contactProfile.photoURL };
-          updates[`contacts/${req.from}/${user.uid}`] = { uid: user.uid, username: profile.username, photoURL: profile.photoURL };
+          updates[`contacts/${user.uid}/${req.from}`] = { uid: req.from, username: contactProfile.username, photoURL: contactProfile.photoURL || null };
+          updates[`contacts/${req.from}/${user.uid}`] = { uid: user.uid, username: profile.username, photoURL: profile.photoURL || null };
         }
         updates[`requests/${user.uid}/${req.id}`] = null;
         
-        // FIX: Use compat version of ref and update.
         db.ref().update(updates);
     };
     
     const handleReject = (reqId: string) => {
-        // FIX: Use compat version of ref and remove.
         db.ref(`requests/${user.uid}/${reqId}`).remove();
     };
     
@@ -320,7 +319,6 @@ const AddFriendModal: React.FC<{profile: UserProfile, onClose: () => void}> = ({
             return;
         }
 
-        // FIX: Use compat version of ref and get.
         const usernameRef = db.ref(`usernames/${username.toLowerCase()}`);
         const snapshot = await usernameRef.get();
         if (!snapshot.exists()) {
@@ -334,14 +332,12 @@ const AddFriendModal: React.FC<{profile: UserProfile, onClose: () => void}> = ({
             return;
         }
 
-        // FIX: Use compat version of ref, push, and set.
         const requestRef = db.ref(`requests/${targetUser.uid}`);
         const newRequestRef = requestRef.push();
         await newRequestRef.set({
             from: auth.currentUser?.uid,
             fromUsername: profile.username,
-            fromPhotoURL: profile.photoURL,
-            // FIX: Use compat version of serverTimestamp.
+            fromPhotoURL: profile.photoURL || null,
             ts: firebase.database.ServerValue.TIMESTAMP
         });
 
@@ -368,7 +364,7 @@ const AddFriendModal: React.FC<{profile: UserProfile, onClose: () => void}> = ({
     );
 }
 
-const ProfileModal: React.FC<{user: firebase.User, profile: UserProfile, onClose: () => void, onNavigateToSettings: () => void, onNavigateToAdmin: () => void}> = ({ user, profile, onClose, onNavigateToSettings, onNavigateToAdmin }) => {
+const ProfileModal: React.FC<{user: firebase.User, profile: UserProfile, onClose: () => void, onNavigateToSettings: () => void, onNavigateToAdmin: () => void, installPrompt: any, onInstallClick: () => void}> = ({ user, profile, onClose, onNavigateToSettings, onNavigateToAdmin, installPrompt, onInstallClick }) => {
     const [isUploading, setIsUploading] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [editedName, setEditedName] = useState(profile.name || '');
@@ -389,14 +385,9 @@ const ProfileModal: React.FC<{user: firebase.User, profile: UserProfile, onClose
 
         setIsUploading(true);
         try {
-            // FIX: Use compat version of storage ref.
             const fileRef = storage.ref(`avatars/${user.uid}`);
-            // FIX: Use compat version of uploadBytes (put).
             await fileRef.put(file);
-            // FIX: Use compat version of getDownloadURL.
             const photoURL = await fileRef.getDownloadURL();
-            
-            // FIX: Use compat version of ref and update.
             await db.ref(`users/${user.uid}`).update({ photoURL });
         } catch (error) {
             console.error("Error uploading profile picture:", error);
@@ -412,7 +403,6 @@ const ProfileModal: React.FC<{user: firebase.User, profile: UserProfile, onClose
             return;
         }
         try {
-            // FIX: Use compat version of ref and update.
             await db.ref(`users/${user.uid}`).update({ name: editedName.trim() });
             setIsEditing(false);
         } catch (error) {
@@ -467,6 +457,11 @@ const ProfileModal: React.FC<{user: firebase.User, profile: UserProfile, onClose
                      {profile.isAdmin && (
                         <button onClick={() => { onClose(); onNavigateToAdmin(); }} className="p-2 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" aria-label="Admin Panel">
                             <ShieldCheckIcon className="w-6 h-6" />
+                        </button>
+                     )}
+                     {installPrompt && (
+                        <button onClick={onInstallClick} className="p-2 text-gray-500 dark:text-gray-400 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700" aria-label="Install App" title="Install App">
+                            <DownloadIcon className="w-6 h-6" />
                         </button>
                      )}
                 </div>
