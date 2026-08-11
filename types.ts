@@ -9,11 +9,11 @@ export interface UserProfile {
   blocked?: { [uid:string]: true };
   settings?: {
     notifications?: {
-      enabled?: boolean;
-      sound?: boolean;
+      sound: boolean;
+      desktop: boolean;
     };
     appearance?: {
-      messageBubbleColor?: string;
+      messageBubbleColor: string;
       receivedMessageBubbleColor?: string;
       chatBackgroundColor?: string;
     };
@@ -21,6 +21,9 @@ export interface UserProfile {
   isAdmin?: boolean;
   isBlockedByAdmin?: boolean;
   fcmToken?: string;
+  lastActive?: number;
+  messagesSent?: number;
+  messagesReceived?: number;
 }
 
 export interface Contact {

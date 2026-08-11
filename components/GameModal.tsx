@@ -84,7 +84,7 @@ const GameModal: React.FC<GameModalProps> = ({ game, user, partner, onMakeMove, 
         </button>
         <h2 id="game-title" className="text-2xl font-bold text-gray-800 dark:text-gray-100">Tic-Tac-Toe</h2>
         <p className="mt-2 text-gray-600 dark:text-gray-400">
-          <span className="font-semibold text-blue-500">{user.username} (X)</span> vs <span className="font-semibold text-red-500">{partner.username} (O)</span>
+          <span className={`font-semibold ${mySymbol === 'X' ? 'text-blue-500' : 'text-red-500'}`}>{user.username} ({mySymbol})</span> vs <span className={`font-semibold ${mySymbol === 'X' ? 'text-red-500' : 'text-blue-500'}`}>{partner.username} ({mySymbol === 'X' ? 'O' : 'X'})</span>
         </p>
         
         <div className="my-6 grid grid-cols-3 gap-2">

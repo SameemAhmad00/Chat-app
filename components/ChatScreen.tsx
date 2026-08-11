@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
-// FIX: Use firebase v9 compat imports to resolve module errors.
 import firebase from 'firebase/compat/app';
 import { db } from '../services/firebase';
 import type { UserProfile, Contact, Message, TicTacToeGameState } from '../types';
@@ -10,6 +9,7 @@ import { BackIcon, PhoneIcon, VideoIcon, SendIcon, MoreIcon, CheckIcon, PencilIc
 import { formatPresenceTimestamp } from '../utils/format';
 import { checkWinner } from '../utils/game';
 import Avatar from './Avatar';
+import { SkeletonMessage } from './Skeleton';
 import GameModal from './GameModal';
 import { Modal, DateRangeModal } from './shared/Modals';
 import { useTheme } from '../contexts/ThemeContext';
@@ -17,7 +17,6 @@ import { useTheme } from '../contexts/ThemeContext';
 declare const html2canvas: any;
 
 interface ChatScreenProps {
-  // FIX: Use User type from firebase compat library.
   user: firebase.User;
   profile: UserProfile;
   partner: Contact;
@@ -337,6 +336,7 @@ const MessageBubble: React.FC<{
 
 const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack, onStartCall }) => {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const [newMessage, setNewMessage] = useState('');
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -358,7 +358,6 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
 
   const chatId = [user.uid, partner.uid].sort().join('_');
   const gameRef = db.ref(`games/${chatId}/tictactoe`);
-  // FIX: Use compat version of ref.
   const userTypingRef = db.ref(`typingIndicators/${chatId}/${user.uid}`);
 
   const handleStartCapture = (startDate: string, endDate: string) => {
@@ -369,9 +368,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
       const msgTimestamp = msg.ts;
       return msgTimestamp >= startTimestamp && msgTimestamp <= endTimestamp;
     });
-    setFilteredMessagesForCapture(filtered);
     setIsDateModalOpen(false);
-    captureChat();
+    setFilteredMessagesForCapture(filtered);
+    // captureChat() is triggered by the useEffect below once state has updated
   };
 
   const captureChat = async () => {
@@ -466,10 +465,18 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
   const messageBubbleColor = profile.settings?.appearance?.messageBubbleColor || '';
   const receivedMessageBubbleColor = profile.settings?.appearance?.receivedMessageBubbleColor || '';
 
+  // Trigger capture after filteredMessagesForCapture state has settled in DOM
   useEffect(() => {
-    // FIX: Use compat version of query.
+    if (filteredMessagesForCapture) {
+      const timer = setTimeout(() => {
+        captureChat();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [filteredMessagesForCapture]);
+
+  useEffect(() => {
     const messagesRef = db.ref(`messages/${chatId}`).orderByChild('ts').limitToLast(50);
-    // FIX: Use compat version of onValue.
     const unsubscribeMessages = messagesRef.on('value', (snapshot) => {
       const data = snapshot.val() || {};
       const messageList: Message[] = [];
@@ -485,18 +492,14 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
       });
 
       if (Object.keys(updates).length > 0) {
-        // FIX: Use compat version of ref and update.
         db.ref().update(updates);
       }
 
       setMessages(messageList);
+      setIsLoadingMessages(false);
     });
-
-    // FIX: Use compat version of ref and set.
     const unreadRef = db.ref(`unreadCounts/${user.uid}/${chatId}`);
     unreadRef.set(0);
-
-    // FIX: Use compat version of onValue.
     const unsubscribeTyping = partnerTypingRef.on('value', (snapshot) => {
       setIsPartnerTyping(snapshot.val() === true);
     });
@@ -530,9 +533,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
     setNewMessage('');
   };
 
-  const handleCancelReply = () => {
-    setReplyingTo(null);
-  };
+  const handleCancelReply = () => setReplyingTo(null);
+
+
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -544,7 +547,6 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
 
     if (editingMessage) {
       // Handle message update
-      // FIX: Use compat version of ref and update.
       const messageRef = db.ref(`messages/${chatId}/${editingMessage.id}`);
       await messageRef.update({
         text: newMessage,
@@ -563,7 +565,6 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
         from: user.uid,
         to: partner.uid,
         text: newMessage,
-        // FIX: Use compat version of serverTimestamp.
         ts: firebase.database.ServerValue.TIMESTAMP,
         status: partnerPresence === 'online' ? 'delivered' : 'sent',
       };
@@ -576,12 +577,8 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
           text: replyingTo.isDeleted ? "This message was deleted" : replyingTo.text,
         };
       }
-
-      // FIX: Use compat version of ref and push.
       const messagesRef = db.ref(`messages/${chatId}`);
       await messagesRef.push(messageData);
-
-      // FIX: Use compat version of ref and set with increment.
       const partnerUnreadRef = db.ref(`unreadCounts/${partner.uid}/${chatId}`);
       await partnerUnreadRef.set(firebase.database.ServerValue.increment(1));
 
@@ -831,7 +828,6 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
   const handleBlockUser = async () => {
     const isBlocked = profile.blocked && profile.blocked[partner.uid];
     if (window.confirm(isBlocked ? `Unblock @${partner.username}?` : `Block @${partner.username}? They won't be able to message or call you.`)) {
-      // FIX: Use compat version of ref and set.
       const blockRef = db.ref(`users/${user.uid}/blocked/${partner.uid}`);
       await blockRef.set(isBlocked ? null : true);
       alert(isBlocked ? 'Unblocked.' : 'Blocked.');
@@ -850,8 +846,6 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
         updates[`unreadCounts/${user.uid}/${chatId}`] = null;
         updates[`unreadCounts/${partner.uid}/${chatId}`] = null;
         updates[`games/${chatId}`] = null; // Also delete game state
-
-        // FIX: Use compat version of ref and update.
         await db.ref().update(updates);
         onBack();
       } catch (error) {
@@ -914,6 +908,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
                   <button role="menuitem" onClick={handleSendGameInvite} className="flex items-center w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600">
                     <GameIcon className="w-5 h-5 mr-2" /> Play Tic-Tac-Toe
                   </button>
+
                   <button role="menuitem" onClick={handleBlockUser} className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600">
                     {profile.blocked && profile.blocked[partner.uid] ? 'Unblock User' : 'Block User'}
                   </button>
@@ -929,7 +924,15 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ user, profile, partner, onBack,
         </header>
 
         <main ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-2 chat-message-list" style={chatBackgroundColor ? { backgroundColor: chatBackgroundColor } : {}}>
-          {displayedMessages.length === 0 && !isCapturing ? (
+          {isLoadingMessages ? (
+            <div className="space-y-2">
+              <SkeletonMessage isOwn={false} />
+              <SkeletonMessage isOwn={true} />
+              <SkeletonMessage isOwn={false} />
+              <SkeletonMessage isOwn={true} />
+              <SkeletonMessage isOwn={false} />
+            </div>
+          ) : displayedMessages.length === 0 && !isCapturing ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
               <ChatIcon className="w-16 h-16 mb-4" />
               <p>Start a conversation with @{partner.username}</p>

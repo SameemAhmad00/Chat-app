@@ -37,14 +37,21 @@ const CallScreen: React.FC<CallScreenProps> = ({ profile, activeCall, localStrea
   }, [activeCall.status]);
 
   useEffect(() => {
-    if (localVideoRef.current && localStream) {
+    if (activeCall.status === 'ended') {
+      onEndCall(duration);
+    }
+  }, [activeCall.status, onEndCall, duration]);
+
+  useEffect(() => {
+    if (localVideoRef.current && localStream && !isCameraOff) {
       localVideoRef.current.srcObject = localStream;
     }
-  }, [localStream]);
+  }, [localStream, isCameraOff]);
 
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play?.().catch(e => console.error("Error playing remote stream:", e));
     }
   }, [remoteStream]);
 

@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect } from 'react';
-// FIX: Use firebase v9 compat imports to resolve module errors.
 import firebase from 'firebase/compat/app';
 import { db } from '../services/firebase';
 import type { UserProfile } from '../types';
@@ -12,14 +11,13 @@ import { Modal } from './shared/Modals';
 // --- Components ---
 
 interface SettingsScreenProps {
-  // FIX: Use User type from firebase compat library.
   user: firebase.User;
   profile: UserProfile;
   onBack: () => void;
 }
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, profile, onBack }) => {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [localAppearance, setLocalAppearance] = useState({
     messageBubbleColor: profile.settings?.appearance?.messageBubbleColor || '#22c55e',
@@ -42,18 +40,15 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, profile, onBack }
     localAppearance.chatBackgroundColor !== (profile.settings?.appearance?.chatBackgroundColor || '');
 
   const notificationSettings = {
-    enabled: profile.settings?.notifications?.enabled ?? true,
     sound: profile.settings?.notifications?.sound ?? true,
   };
 
-  const handleSettingChange = (key: 'enabled' | 'sound', value: boolean) => {
+  const handleSettingChange = (key: 'sound', value: boolean) => {
     const updates: { [key: string]: any } = {};
     updates[`/users/${user.uid}/settings/notifications/${key}`] = value;
-    if (key === 'enabled' && !value) {
-      updates[`/users/${user.uid}/settings/notifications/sound`] = false;
-    }
     db.ref().update(updates);
   };
+
 
   const handleLocalAppearanceChange = (key: keyof typeof localAppearance, value: string) => {
     setLocalAppearance(prev => ({ ...prev, [key]: value }));
@@ -122,39 +117,55 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ user, profile, onBack }
 
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
           <h3 className="font-bold text-lg mb-4 text-green-600 dark:text-green-400">Notifications</h3>
-          <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-            <SettingsItem
-              label="Enable Message Notifications"
-              description="Receive alerts for new messages."
-            >
-              <ToggleSwitch
-                isOn={notificationSettings.enabled}
-                onToggle={() => handleSettingChange('enabled', !notificationSettings.enabled)}
-              />
-            </SettingsItem>
+        <ul className="divide-y divide-gray-200 dark:divide-gray-700">
             <SettingsItem
               label="Notification Sound"
               description="Play a sound when a new message arrives."
-              disabled={!notificationSettings.enabled}
             >
               <ToggleSwitch
                 isOn={notificationSettings.sound}
                 onToggle={() => handleSettingChange('sound', !notificationSettings.sound)}
-                disabled={!notificationSettings.enabled}
               />
             </SettingsItem>
           </ul>
         </div>
+
+
         
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 space-y-6">
-          <div className="flex justify-between items-center">
-            <h3 className="font-bold text-lg text-green-600 dark:text-green-400">Appearance</h3>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs text-gray-500 font-medium">Dark Mode</span>
-              <ToggleSwitch
-                isOn={theme === 'dark'}
-                onToggle={toggleTheme}
-              />
+          <div className="space-y-3">
+            <h3 className="font-bold text-lg text-green-600 dark:text-green-400">Theme</h3>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setTheme('light')}
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border ${
+                  theme === 'light' ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 font-bold' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'
+                } transition-all`}
+              >
+                <div className="w-6 h-6 rounded-full bg-white border border-gray-300 shadow-sm mb-2"></div>
+                <span className="text-xs">Light</span>
+              </button>
+              
+              <button
+                onClick={() => setTheme('dark')}
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border ${
+                  theme === 'dark' ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 font-bold' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'
+                } transition-all`}
+              >
+                <div className="w-6 h-6 rounded-full bg-gray-800 border border-gray-600 shadow-sm mb-2"></div>
+                <span className="text-xs">Dark</span>
+              </button>
+              
+              <button
+                onClick={() => setTheme('glass')}
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border ${
+                  theme === 'glass' ? 'border-blue-400 bg-blue-500/20 text-blue-500 font-bold shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'
+                } transition-all relative overflow-hidden`}
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-pink-500 via-purple-500 to-blue-500 opacity-20"></div>
+                <div className="w-6 h-6 rounded-full bg-white/30 backdrop-blur-md border border-white/40 shadow-sm mb-2 z-10"></div>
+                <span className="text-xs z-10">Glass</span>
+              </button>
             </div>
           </div>
 

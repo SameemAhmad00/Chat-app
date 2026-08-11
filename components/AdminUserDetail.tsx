@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-// FIX: Use firebase v9 compat imports to resolve module errors.
-import { db } from '../services/firebase';
+import { auth, db } from '../services/firebase';
 import firebase from 'firebase/compat/app';
 import type { UserProfile, EnrichedContact } from '../types';
 import { BackIcon, ShieldCheckIcon, CancelIcon, CheckIcon, MailIcon, AtSymbolIcon, UserIcon, EyeIcon, PencilIcon, TrashIcon, MessageCircleIcon } from './Icons';
 import Avatar from './Avatar';
+import { SkeletonContact, SkeletonBase } from './Skeleton';
 import { formatPresenceTimestamp, formatTime } from '../utils/format';
 
 interface AdminUserDetailProps {
@@ -68,6 +68,11 @@ const AdminUserDetail: React.FC<AdminUserDetailProps> = ({ currentUserProfile, v
   const [presence, setPresence] = useState<'online' | number | null>(null);
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [newUsername, setNewUsername] = useState(viewedUser.username || '');
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [newName, setNewName] = useState(viewedUser.name || '');
+  const [isEditingEmail, setIsEditingEmail] = useState(false);
+  const [newEmail, setNewEmail] = useState(viewedUser.email || '');
+  const [isSendingResetEmail, setIsSendingResetEmail] = useState(false);
   const [recentChats, setRecentChats] = useState<EnrichedContact[]>([]);
   const [isLoadingChats, setIsLoadingChats] = useState(true);
   const [isSendMessageModalOpen, setSendMessageModalOpen] = useState(false);
@@ -220,6 +225,78 @@ const AdminUserDetail: React.FC<AdminUserDetailProps> = ({ currentUserProfile, v
     }
   };
 
+  const handleUpdateName = async () => {
+    const cleanedName = newName.trim();
+    if (!cleanedName) {
+      alert("Name cannot be empty.");
+      return;
+    }
+    if (cleanedName === user.name) {
+      setIsEditingName(false);
+      return;
+    }
+
+    try {
+      await db.ref(`users/${user.uid}`).update({ name: cleanedName });
+      setIsEditingName(false);
+    } catch (error) {
+      console.error("Error updating name:", error);
+      alert("Failed to update name.");
+    }
+  };
+
+  const handleUpdateEmail = async () => {
+    const cleanedEmail = newEmail.trim().toLowerCase();
+    if (!cleanedEmail) {
+      alert("Email cannot be empty.");
+      return;
+    }
+    if (!/\S+@\S+\.\S+/.test(cleanedEmail)) {
+      alert("Please enter a valid email address.");
+      return;
+    }
+    if (cleanedEmail === user.email) {
+      setIsEditingEmail(false);
+      return;
+    }
+
+    try {
+      await db.ref(`users/${user.uid}`).update({ email: cleanedEmail });
+      setIsEditingEmail(false);
+      alert(`Database contact email updated to ${cleanedEmail}. Note: This does not change their actual login credentials.`);
+    } catch (error) {
+      console.error("Error updating email:", error);
+      alert("Failed to update email.");
+    }
+  };
+
+  const handleSendPasswordReset = () => {
+    if (!user.email) {
+      alert("User does not have an email address set.");
+      return;
+    }
+    
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Send Password Reset Email',
+      message: `Are you sure you want to send a password reset email to ${user.email}? They will receive a secure link to reset their password.`,
+      confirmText: 'Send Email',
+      confirmColor: 'bg-green-600',
+      onConfirm: async () => {
+        setIsSendingResetEmail(true);
+        try {
+          await auth.sendPasswordResetEmail(user.email);
+          alert(`Password reset email successfully sent to ${user.email}`);
+        } catch (error: any) {
+          console.error("Error sending password reset email:", error);
+          alert(`Failed to send email: ${error.message}`);
+        } finally {
+          setIsSendingResetEmail(false);
+        }
+      }
+    });
+  };
+
   const creationDate = user.createdAt ? new Date(user.createdAt).toLocaleString() : 'Unknown';
 
   const handleSendMessage = async (message: string) => {
@@ -318,11 +395,43 @@ const AdminUserDetail: React.FC<AdminUserDetailProps> = ({ currentUserProfile, v
             <div className="pt-16 pb-8 px-8">
               <div className="flex justify-between items-start">
                 <div className="min-w-0 flex-1 pr-4">
-                  <motion.h1 
-                    className="text-2xl font-bold text-gray-900 dark:text-gray-100 truncate"
-                  >
-                    {user.name}
-                  </motion.h1>
+                  <AnimatePresence mode="wait">
+                    {isEditingName ? (
+                      <motion.div 
+                        key="edit-name"
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 5 }}
+                        className="flex items-center space-x-2 mb-1"
+                      >
+                        <input 
+                          type="text" 
+                          value={newName} 
+                          onChange={(e) => setNewName(e.target.value)}
+                          className="bg-gray-100 dark:bg-gray-800 border-2 border-green-500/30 rounded-lg px-2.5 py-1 text-xl focus:border-green-500 outline-none transition-all dark:text-white font-bold w-full max-w-[250px]"
+                          autoFocus
+                        />
+                        <button onClick={handleUpdateName} className="text-green-500 hover:bg-green-500/10 p-1.5 rounded-full transition-colors shrink-0">
+                          <CheckIcon className="w-5 h-5" />
+                        </button>
+                        <button onClick={() => { setIsEditingName(false); setNewName(user.name || ''); }} className="text-red-500 hover:bg-red-500/10 p-1.5 rounded-full transition-colors shrink-0">
+                          <CancelIcon className="w-5 h-5" />
+                        </button>
+                      </motion.div>
+                    ) : (
+                      <motion.h1 
+                        key="view-name"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-2xl font-bold text-gray-900 dark:text-gray-100 truncate flex items-center group cursor-pointer"
+                        onClick={() => { setIsEditingName(true); setNewName(user.name || ''); }}
+                        title="Click to edit name"
+                      >
+                        {user.name}
+                        <PencilIcon className="w-4 h-4 ml-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-green-500 transition-all shrink-0" />
+                      </motion.h1>
+                    )}
+                  </AnimatePresence>
                   <AnimatePresence mode="wait">
                     {isEditingUsername ? (
                       <motion.div 
@@ -340,11 +449,11 @@ const AdminUserDetail: React.FC<AdminUserDetailProps> = ({ currentUserProfile, v
                           className="bg-gray-100 dark:bg-gray-800 border-2 border-green-500/30 rounded-lg px-2.5 py-1 text-xs focus:border-green-500 outline-none transition-all dark:text-white"
                           autoFocus
                         />
-                        <button onClick={handleUpdateUsername} className="text-green-500 hover:bg-green-500/10 p-1 rounded-full transition-colors">
-                          <CheckIcon className="w-5 h-5" />
+                        <button onClick={handleUpdateUsername} className="text-green-500 hover:bg-green-500/10 p-1.5 rounded-full transition-colors shrink-0">
+                          <CheckIcon className="w-4 h-4" />
                         </button>
-                        <button onClick={() => { setIsEditingUsername(false); setNewUsername(user.username || ''); }} className="text-red-500 hover:bg-red-500/10 p-1 rounded-full transition-colors">
-                          <CancelIcon className="w-5 h-5" />
+                        <button onClick={() => { setIsEditingUsername(false); setNewUsername(user.username || ''); }} className="text-red-500 hover:bg-red-500/10 p-1.5 rounded-full transition-colors shrink-0">
+                          <CancelIcon className="w-4 h-4" />
                         </button>
                       </motion.div>
                     ) : (
@@ -391,7 +500,43 @@ const AdminUserDetail: React.FC<AdminUserDetailProps> = ({ currentUserProfile, v
                         <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg mr-3 group-hover:bg-green-500/10 transition-colors">
                           <MailIcon className="w-4 h-4 text-gray-400 group-hover:text-green-500 transition-colors" />
                         </div>
-                        <span className="truncate font-medium text-sm">{user.email}</span>
+                        <AnimatePresence mode="wait">
+                          {isEditingEmail ? (
+                            <motion.div 
+                              key="edit-email"
+                              initial={{ opacity: 0, y: -5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: 5 }}
+                              className="flex items-center space-x-2"
+                            >
+                              <input 
+                                type="email" 
+                                value={newEmail} 
+                                onChange={(e) => setNewEmail(e.target.value)}
+                                className="bg-gray-100 dark:bg-gray-800 border-2 border-green-500/30 rounded-lg px-2.5 py-1 text-xs focus:border-green-500 outline-none transition-all dark:text-white"
+                                autoFocus
+                              />
+                              <button onClick={handleUpdateEmail} className="text-green-500 hover:bg-green-500/10 p-1.5 rounded-full transition-colors">
+                                <CheckIcon className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => { setIsEditingEmail(false); setNewEmail(user.email || ''); }} className="text-red-500 hover:bg-red-500/10 p-1.5 rounded-full transition-colors">
+                                <CancelIcon className="w-3.5 h-3.5" />
+                              </button>
+                            </motion.div>
+                          ) : (
+                            <motion.span 
+                              key="view-email"
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className="truncate font-medium text-sm flex items-center cursor-pointer"
+                              title="Click to edit contact email"
+                              onClick={() => { setIsEditingEmail(true); setNewEmail(user.email || ''); }}
+                            >
+                              {user.email || 'No email set'}
+                              <PencilIcon className="w-3.5 h-3.5 ml-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-green-500 transition-all shrink-0" />
+                            </motion.span>
+                          )}
+                        </AnimatePresence>
                       </div>
                       <div className="flex items-center text-gray-700 dark:text-gray-300 group">
                         <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg mr-3 group-hover:bg-green-500/10 transition-colors">
@@ -434,6 +579,27 @@ const AdminUserDetail: React.FC<AdminUserDetailProps> = ({ currentUserProfile, v
               </div>
 
               <div className="mt-10 pt-6 border-t border-gray-100 dark:border-gray-800">
+                  <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Account Security</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="col-span-1 p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 flex flex-col items-start justify-center border border-gray-100 dark:border-gray-700/50 relative overflow-hidden">
+                          <span className="text-xs font-bold text-gray-600 dark:text-gray-400 mb-2">Password Management</span>
+                          <button
+                            onClick={handleSendPasswordReset}
+                            disabled={isSendingResetEmail || !user.email}
+                            className={`flex items-center text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${
+                              user.email 
+                                ? 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:border-green-500 hover:text-green-600 dark:hover:text-green-400'
+                                : 'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-800 border-transparent text-gray-400'
+                            }`}
+                          >
+                            <MailIcon className="w-4 h-4 mr-1.5" />
+                            {isSendingResetEmail ? 'Sending...' : 'Send Reset Link'}
+                          </button>
+                      </div>
+                  </div>
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-gray-100 dark:border-gray-800">
                   <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Account Status</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 flex items-center justify-between border border-gray-100 dark:border-gray-700/50">
@@ -466,8 +632,17 @@ const AdminUserDetail: React.FC<AdminUserDetailProps> = ({ currentUserProfile, v
             </div>
 
             {isLoadingChats ? (
-              <div className="flex justify-center py-8">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-500"></div>
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={`chat-skel-${i}`} className="flex items-center p-3 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700/50 animate-pulse">
+                    <SkeletonBase className="w-10 h-10 rounded-full shrink-0 mr-4" />
+                    <div className="flex-1 space-y-2">
+                      <SkeletonBase className="h-3 w-1/3 rounded" />
+                      <SkeletonBase className="h-2 w-2/3 rounded" />
+                    </div>
+                    <SkeletonBase className="w-8 h-8 rounded-full ml-2" />
+                  </div>
+                ))}
               </div>
             ) : recentChats.length > 0 ? (
               <div className="space-y-4">

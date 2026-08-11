@@ -23,6 +23,72 @@
         font-family: 'Roboto', sans-serif;
       }
 
+      /* Glass Theme Base Styles */
+      .glass body {
+        background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+        background-size: 400% 400%;
+        animation: gradientBG 15s ease infinite;
+        min-height: 100vh;
+      }
+      
+      @keyframes gradientBG {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+
+      /* Frosted Glass Panes */
+      .glass .bg-white, .glass .dark\:bg-black, .glass .dark\:bg-gray-800, .glass .dark\:bg-gray-900, .glass .dark\:bg-\[\#1e293b\], .glass .bg-gray-100, .glass .bg-gray-50, .glass .dark\:bg-\[\#0f172a\] {
+        background-color: rgba(255, 255, 255, 0.15) !important;
+        backdrop-filter: blur(16px) !important;
+        -webkit-backdrop-filter: blur(16px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2) !important;
+        color: white !important;
+      }
+
+      /* Base structure specific overrides for complete transparency where needed */
+      .glass #root > div > div {
+         background-color: transparent !important;
+         box-shadow: none !important;
+         backdrop-filter: none !important;
+         border: none !important;
+      }
+      
+      /* Glass Buttons and Inputs */
+      .glass input, .glass textarea, .glass .bg-gray-200.dark\:bg-gray-700 {
+        background-color: rgba(0, 0, 0, 0.2) !important;
+        border: 1px solid rgba(255, 255, 255, 0.3) !important;
+        color: white !important;
+        outline: none !important;
+      }
+      .glass input::placeholder, .glass textarea::placeholder {
+        color: rgba(255, 255, 255, 0.6) !important;
+      }
+
+      /* Text color overrides for Glass mode to ensure legibility */
+      .glass [class*="text-gray-"], .glass [class*="text-black"], .glass .text-black {
+        color: rgba(255, 255, 255, 0.95) !important;
+      }
+      
+      /* SVG Icons override */
+      .glass svg.text-gray-400, .glass svg.text-gray-500, .glass svg.text-gray-600 {
+        color: rgba(255, 255, 255, 0.8) !important;
+      }
+
+      /* Allow green buttons/accents to keep their colors but make them stand out */
+      .glass .text-green-500, .glass .text-green-600, .glass .dark\:text-green-400 {
+        color: #4ade80 !important; /* brighter green */
+        text-shadow: 0 0 10px rgba(74, 222, 128, 0.3);
+      }
+      
+      /* Glass header */
+      .glass header {
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        backdrop-filter: blur(20px) !important;
+        border-bottom: 1px solid rgba(255,255,255,0.2) !important;
+      }
+
       /* General smooth transitions for interactive elements */
       button, a {
         transition: all 0.2s ease-in-out;

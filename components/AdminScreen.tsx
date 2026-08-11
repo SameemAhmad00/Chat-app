@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-// FIX: Use firebase v9 compat imports to resolve module errors.
 import { db } from '../services/firebase';
 import firebase from 'firebase/compat/app';
 import type { UserProfile } from '../types';
 import { BackIcon, ShieldCheckIcon, TrashIcon, EyeIcon, CheckIcon, CancelIcon, ArrowUpIcon, ArrowDownIcon, PencilIcon, UsersIcon, PaletteIcon } from './Icons';
 import Avatar from './Avatar';
+import { SkeletonStat, SkeletonTableRow } from './Skeleton';
 import type { NavigationState } from '../App';
 
 interface AdminScreenProps {
@@ -130,7 +130,6 @@ const AdminScreen: React.FC<AdminScreenProps> = ({ currentUserProfile, onBack, o
 
 
   useEffect(() => {
-    // FIX: Use compat version of ref and onValue.
     const usersRef = db.ref('users');
     const unsubscribeUsers = usersRef.on('value', (snapshot) => {
       const usersData = snapshot.val() || {};
@@ -159,8 +158,6 @@ const AdminScreen: React.FC<AdminScreenProps> = ({ currentUserProfile, onBack, o
       setSignupData(dailySignups);
       setIsLoading(false);
     });
-
-    // FIX: Use compat version of ref and onValue.
     const presenceRef = db.ref('presence');
     const unsubscribePresence = presenceRef.on('value', (snapshot) => {
         const presences = snapshot.val() || {};
@@ -265,7 +262,6 @@ const AdminScreen: React.FC<AdminScreenProps> = ({ currentUserProfile, onBack, o
     }
 
     try {
-        // FIX: Use compat version of ref and get.
         const usernameRef = db.ref(`usernames/${newUsername.toLowerCase()}`);
         const snapshot = await usernameRef.get();
         if (snapshot.exists()) {
@@ -277,8 +273,6 @@ const AdminScreen: React.FC<AdminScreenProps> = ({ currentUserProfile, onBack, o
         updates[`/users/${userToUpdate.uid}/username`] = newUsername;
         updates[`/usernames/${oldUsername.toLowerCase()}`] = null;
         updates[`/usernames/${newUsername.toLowerCase()}`] = { uid: userToUpdate.uid };
-
-        // FIX: Use compat version of ref and update.
         await db.ref().update(updates);
         alert('Username updated successfully.');
         setEditingUser(null);
@@ -288,28 +282,9 @@ const AdminScreen: React.FC<AdminScreenProps> = ({ currentUserProfile, onBack, o
     }
   };
 
-  const presences = useMemo(() => {
-    const presenceData: { [uid: string]: 'online' | 'offline' } = {};
-    users.forEach(user => {
-      presenceData[user.uid] = 'offline'; // default to offline
-    });
-    db.ref('presence').once('value', (snapshot) => {
-      const presences = snapshot.val() || {};
-      Object.keys(presences).forEach(uid => {
-        if (presences[uid] === 'online') {
-          presenceData[uid] = 'online';
-        }
-      });
-    });
-    return presenceData;
-  }, [users]);
-
   const sortedAndFilteredUsers = useMemo(() => {
-    let sortableUsers = [...users].map(u => ({ ...u, status: presences[u.uid] || 'offline' }));
+    let sortableUsers = [...users];
 
-    
-
-    
     if (searchTerm) {
       const lowercasedFilter = searchTerm.toLowerCase();
       sortableUsers = sortableUsers.filter(user =>
@@ -366,10 +341,41 @@ const AdminScreen: React.FC<AdminScreenProps> = ({ currentUserProfile, onBack, o
       
       <main className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-6">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-64 space-y-4">
-            <div className="w-12 h-12 border-4 border-green-500/20 border-t-green-500 rounded-full animate-spin"></div>
-            <p className="text-gray-500 dark:text-gray-400 font-medium animate-pulse">Fetching dashboard data...</p>
-          </div>
+          <>
+            {/* Skeleton stat cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {Array.from({ length: 4 }).map((_, i) => <SkeletonStat key={`stat-skel-${i}`} />)}
+            </div>
+            {/* Skeleton chart + table layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1 bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md animate-pulse">
+                <div className="h-4 bg-gray-200 dark:bg-gray-600 rounded w-3/5 mb-6" />
+                <div className="flex justify-around items-end h-48 space-x-2">
+                  {[40, 70, 55, 90, 30, 65, 80].map((h, i) => (
+                    <div key={i} className="flex-1 flex flex-col items-center">
+                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-t-md" style={{ height: `${h}%` }} />
+                      <div className="h-2 w-4 bg-gray-200 dark:bg-gray-600 rounded mt-2" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="lg:col-span-2 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md animate-pulse">
+                <div className="h-4 bg-gray-200 dark:bg-gray-600 rounded w-1/3 mb-4" />
+                <table className="min-w-full">
+                  <thead>
+                    <tr>
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <th key={i} className="p-3"><div className="h-3 bg-gray-200 dark:bg-gray-600 rounded w-12" /></th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: 5 }).map((_, i) => <SkeletonTableRow key={`row-skel-${i}`} columns={5} />)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-// FIX: Use firebase v9 compat imports to resolve module errors.
 import firebase from 'firebase/compat/app';
 import { auth, db, storage } from '../services/firebase';
 import type { UserProfile, Contact, FriendRequest, Call, EnrichedContact, Message, CallRecord } from '../types';
 import { MenuIcon, ChatIcon, CogIcon, ArrowUpRightIcon, ArrowDownLeftIcon, VideoIcon, PhoneIcon, ShieldCheckIcon, DownloadIcon, TrashIcon, ExclamationTriangleIcon } from './Icons';
 import { formatPresenceTimestamp, formatTimestamp, formatCallDuration } from '../utils/format';
 import Avatar from './Avatar';
+import { SkeletonContact } from './Skeleton';
 import { useTheme } from '../contexts/ThemeContext';
 import type { NavigationState } from '../App';
+import { Modal } from './shared/Modals';
 
 interface MainScreenProps {
-  // FIX: Use User type from firebase compat library.
   user: firebase.User;
   profile: UserProfile;
   onNavigate: (state: NavigationState) => void;
@@ -30,6 +30,10 @@ const MainScreen: React.FC<MainScreenProps> = ({ user, profile, onNavigate, onSt
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [callLogs, setCallLogs] = useState<CallRecord[]>([]);
   
+  const [isLoadingContacts, setIsLoadingContacts] = useState(true);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+  const [isLoadingCalls, setIsLoadingCalls] = useState(true);
+
   const [isAddFriendModalOpen, setAddFriendModalOpen] = useState(false);
   const [isProfileModalOpen, setProfileModalOpen] = useState(false);
   const [selectedCallLog, setSelectedCallLog] = useState<CallRecord | null>(null);
@@ -37,11 +41,8 @@ const MainScreen: React.FC<MainScreenProps> = ({ user, profile, onNavigate, onSt
 
   useEffect(() => {
     // --- Existing listeners for contacts and requests ---
-    // FIX: Use compat version of ref.
     const contactsRef = db.ref(`contacts/${user.uid}`);
     const listeners: (() => void)[] = [];
-
-    // FIX: Use compat version of onValue.
     const unsubscribeContacts = contactsRef.on('value', (snapshot) => {
       listeners.forEach(l => l());
       listeners.length = 0;
@@ -51,11 +52,10 @@ const MainScreen: React.FC<MainScreenProps> = ({ user, profile, onNavigate, onSt
 
       const enrichedContactList: EnrichedContact[] = contactList.map(c => ({...c}));
       setContacts(enrichedContactList);
+      setIsLoadingContacts(false);
 
       enrichedContactList.forEach((contact) => {
         const chatId = [user.uid, contact.uid].sort().join('_');
-        
-        // FIX: Use compat version of query.
         const lastMessageQuery = db.ref(`messages/${chatId}`).orderByChild('ts').limitToLast(1);
         const unsubMessage = lastMessageQuery.on('value', (msgSnap) => {
           if (msgSnap.exists()) {
@@ -75,16 +75,12 @@ const MainScreen: React.FC<MainScreenProps> = ({ user, profile, onNavigate, onSt
           }
         });
         listeners.push(() => lastMessageQuery.off('value', unsubMessage));
-        
-        // FIX: Use compat version of ref and onValue.
         const unreadCountRef = db.ref(`unreadCounts/${user.uid}/${chatId}`);
         const unsubUnread = unreadCountRef.on('value', (unreadSnap) => {
           const unreadCount = unreadSnap.val() || 0;
           setContacts(prev => prev.map(c => c.uid === contact.uid ? { ...c, unreadCount } : c));
         });
         listeners.push(() => unreadCountRef.off('value', unsubUnread));
-
-        // FIX: Use compat version of ref and onValue.
         const presenceRef = db.ref(`presence/${contact.uid}`);
         const unsubPresence = presenceRef.on('value', (presenceSnap) => {
           const presence = presenceSnap.val();
@@ -93,17 +89,15 @@ const MainScreen: React.FC<MainScreenProps> = ({ user, profile, onNavigate, onSt
         listeners.push(() => presenceRef.off('value', unsubPresence));
       });
     });
-
-    // FIX: Use compat version of ref and onValue.
     const requestsRef = db.ref(`requests/${user.uid}`);
     const unsubscribeRequests = requestsRef.on('value', (snapshot) => {
       const data = snapshot.val() || {};
       const requestList = Object.keys(data).map(key => ({ ...data[key], id: key })) as FriendRequest[];
       setRequests(requestList.sort((a,b) => (b.ts || 0) - (a.ts || 0)));
+      setIsLoadingRequests(false);
     });
 
     // --- New listener for call logs ---
-    // FIX: Use compat version of query.
     const callLogsRef = db.ref(`callLogs/${user.uid}`).orderByChild('ts');
     const unsubscribeCallLogs = callLogsRef.on('value', (snapshot) => {
         const data = snapshot.val() || {};
@@ -111,6 +105,7 @@ const MainScreen: React.FC<MainScreenProps> = ({ user, profile, onNavigate, onSt
             .map(key => ({ ...data[key], id: key }))
             .sort((a, b) => b.ts - a.ts); // sort descending
         setCallLogs(logList);
+        setIsLoadingCalls(false);
     });
 
     return () => {
@@ -136,11 +131,11 @@ const MainScreen: React.FC<MainScreenProps> = ({ user, profile, onNavigate, onSt
   const renderTabContent = () => {
     switch (activeTab) {
       case 'chats':
-        return <ChatList contacts={contacts} onSelectChat={(partner) => onNavigate({ view: 'chat', partner })} />;
+        return <ChatList contacts={contacts} onSelectChat={(partner) => onNavigate({ view: 'chat', partner })} isLoading={isLoadingContacts} />;
       case 'requests':
-        return <RequestList requests={requests} user={user} profile={profile} />;
+        return <RequestList requests={requests} user={user} profile={profile} isLoading={isLoadingRequests} />;
       case 'calls':
-        return <CallHistory logs={callLogs} onLogClick={setSelectedCallLog} onDeleteClick={setDeletingCallLog} />;
+        return <CallHistory logs={callLogs} onLogClick={setSelectedCallLog} onDeleteClick={setDeletingCallLog} isLoading={isLoadingCalls} />;
       default:
         return null;
     }
@@ -198,7 +193,15 @@ const TabButton: React.FC<{title: string, isActive: boolean, onClick: ()=>void, 
     </button>
 );
 
-const ChatList: React.FC<{contacts: EnrichedContact[], onSelectChat: (p:Contact)=>void}> = ({ contacts, onSelectChat }) => {
+const ChatList: React.FC<{contacts: EnrichedContact[], onSelectChat: (p:Contact)=>void, isLoading: boolean}> = ({ contacts, onSelectChat, isLoading }) => {
+  if (isLoading) {
+    return (
+      <div className="divide-y divide-gray-100 dark:divide-gray-700">
+        {Array.from({ length: 5 }).map((_, i) => <SkeletonContact key={i} />)}
+      </div>
+    );
+  }
+  
   if (contacts.length === 0) {
     return <div className="text-center text-gray-500 dark:text-gray-400 mt-10 p-4">No chats yet. Tap the chat icon to add a friend!</div>;
   }
@@ -248,7 +251,7 @@ const ChatList: React.FC<{contacts: EnrichedContact[], onSelectChat: (p:Contact)
   );
 };
 
-const RequestList: React.FC<{requests: FriendRequest[], user: firebase.User, profile: UserProfile}> = ({ requests, user, profile }) => {
+const RequestList: React.FC<{requests: FriendRequest[], user: firebase.User, profile: UserProfile, isLoading: boolean}> = ({ requests, user, profile, isLoading }) => {
     const handleAccept = async (req: FriendRequest) => {
         const updates: {[key: string]: any} = {};
         const contactProfileSnap = await db.ref(`users/${req.from}`).get();
@@ -267,6 +270,14 @@ const RequestList: React.FC<{requests: FriendRequest[], user: firebase.User, pro
         db.ref(`requests/${user.uid}/${reqId}`).remove();
     };
     
+    if (isLoading) {
+        return (
+            <div className="space-y-2 p-2">
+                {Array.from({ length: 3 }).map((_, i) => <SkeletonContact key={`req-skel-${i}`} className="rounded-lg shadow-sm" />)}
+            </div>
+        );
+    }
+
     if (requests.length === 0) {
         return <div className="text-center text-gray-500 dark:text-gray-400 mt-10">No new friend requests.</div>;
     }
@@ -288,7 +299,15 @@ const RequestList: React.FC<{requests: FriendRequest[], user: firebase.User, pro
     );
 };
 
-const CallHistory: React.FC<{ logs: CallRecord[]; onLogClick: (log: CallRecord) => void; onDeleteClick: (log: CallRecord) => void; }> = ({ logs, onLogClick, onDeleteClick }) => {
+const CallHistory: React.FC<{ logs: CallRecord[]; onLogClick: (log: CallRecord) => void; onDeleteClick: (log: CallRecord) => void; isLoading: boolean }> = ({ logs, onLogClick, onDeleteClick, isLoading }) => {
+    if (isLoading) {
+        return (
+            <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                {Array.from({ length: 4 }).map((_, i) => <SkeletonContact key={`call-skel-${i}`} />)}
+            </div>
+        );
+    }
+
     if (logs.length === 0) {
         return <div className="text-center text-gray-500 dark:text-gray-400 mt-10 p-4">No recent calls.</div>;
     }
@@ -585,67 +604,6 @@ const DeleteCallLogModal: React.FC<{ log: CallRecord, onConfirm: () => void, onC
                 <button onClick={onConfirm} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-semibold">Delete</button>
             </div>
         </Modal>
-    );
-};
-
-
-const Modal: React.FC<React.PropsWithChildren<{title: string, onClose: () => void}>> = ({ title, onClose, children }) => {
-    const modalRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                onClose();
-            }
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [onClose]);
-
-    useEffect(() => {
-        const modalNode = modalRef.current;
-        if (!modalNode) return;
-
-        const focusableElements = modalNode.querySelectorAll<HTMLElement>(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        const firstElement = focusableElements[0];
-        const lastElement = focusableElements[focusableElements.length - 1];
-
-        const handleTabKeyPress = (event: KeyboardEvent) => {
-            if (event.key === 'Tab') {
-                if (event.shiftKey) { // Shift+Tab
-                    if (document.activeElement === firstElement) {
-                        lastElement.focus();
-                        event.preventDefault();
-                    }
-                } else { // Tab
-                    if (document.activeElement === lastElement) {
-                        firstElement.focus();
-                        event.preventDefault();
-                    }
-                }
-            }
-        };
-        
-        if (firstElement) {
-            firstElement.focus();
-        }
-        modalNode.addEventListener('keydown', handleTabKeyPress);
-        return () => modalNode.removeEventListener('keydown', handleTabKeyPress);
-    }, []);
-
-    return (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 animation-fade-in" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-            <div ref={modalRef} className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-sm animation-scale-in">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 id="modal-title" className="text-xl font-bold text-gray-800 dark:text-gray-100">{title}</h2>
-                    {/* FIX: Remove typo parentheses from close icon. */}
-                    <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl font-bold">&times;</button>
-                </div>
-                {children}
-            </div>
-        </div>
     );
 };
 

@@ -1,7 +1,5 @@
 
 import React from 'react';
-
-// FIX: Added style property to allow for inline styling of icons.
 type IconProps = { className?: string; style?: React.CSSProperties };
 
 export const PlusIcon: React.FC<IconProps> = ({ className, style }) => (

@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-// FIX: Use firebase v9 compat imports to resolve module errors.
 import firebase from 'firebase/compat/app';
 import { auth, db } from './services/firebase';
 import type { UserProfile, Contact, Call, CallRecord } from './types';
@@ -12,6 +11,7 @@ import SettingsScreen from './components/SettingsScreen';
 import AdminScreen from './components/AdminScreen';
 import AdminChatViewer from './components/AdminChatViewer';
 import AdminUserDetail from './components/AdminUserDetail';
+import { useTheme } from './contexts/ThemeContext';
 
 
 import { endCall, startOutgoingCall, acceptIncomingCall } from './services/webrtc';
@@ -39,8 +39,8 @@ export type ActiveCall = {
 };
 
 const App: React.FC = () => {
+  const { theme } = useTheme();
   const [isLoading, setIsLoading] = useState(true);
-  // FIX: Use User type from firebase compat library.
   const [user, setUser] = useState<firebase.User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
@@ -84,7 +84,7 @@ const App: React.FC = () => {
 
     setLocalStream(null);
     setRemoteStream(null);
-  }, [localStream, activeCall, user, db]);
+  }, [localStream, activeCall, user]);
 
   // Handle browser back button
   useEffect(() => {
@@ -131,8 +131,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
-
-    // FIX: Use compat version of onAuthStateChanged.
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (unsubscribeProfile) {
         unsubscribeProfile();
@@ -140,7 +138,6 @@ const App: React.FC = () => {
       }
 
       if (user) {
-        // FIX: Use compat version of ref.
         const profileRef = db.ref(`users/${user.uid}`);
         const profileListener = (snapshot: firebase.database.DataSnapshot) => {
           if (snapshot.exists()) {
@@ -168,7 +165,6 @@ const App: React.FC = () => {
           }
           setIsLoading(false);
         };
-        // FIX: Use compat version of onValue.
         profileRef.on('value', profileListener);
         unsubscribeProfile = () => profileRef.off('value', profileListener);
       } else {
@@ -189,16 +185,10 @@ const App: React.FC = () => {
   // Manage user presence
   useEffect(() => {
     if (!user) return;
-
-    // FIX: Use compat version of ref.
     const userPresenceRef = db.ref(`presence/${user.uid}`);
-    // FIX: Use compat version of ref for .info/connected.
     const connectedRef = db.ref('.info/connected');
-
-    // FIX: Use compat version of onValue.
     const listener = connectedRef.on('value', (snap) => {
       if (snap.val() === true) {
-        // FIX: Use compat version of set and onDisconnect.
         userPresenceRef.set('online');
         // onDisconnect will set the value at userPresenceRef when the client disconnects
         userPresenceRef.onDisconnect().set(firebase.database.ServerValue.TIMESTAMP);
@@ -207,10 +197,8 @@ const App: React.FC = () => {
 
     return () => {
       // Mark user as offline when they log out or the component unmounts
-      // FIX: Use compat version of set and serverTimestamp.
       userPresenceRef.set(firebase.database.ServerValue.TIMESTAMP);
       db.ref(`users/${user.uid}`).update({ lastActive: firebase.database.ServerValue.TIMESTAMP });
-      // FIX: Use compat version of off.
       connectedRef.off('value', listener);
     };
   }, [user]);
@@ -243,10 +231,7 @@ const App: React.FC = () => {
   // Listen for incoming calls
   useEffect(() => {
     if (!user || !profile) return;
-    // FIX: Use compat version of ref.
     const callsRef = db.ref(`calls/${user.uid}`);
-
-    // FIX: Use compat version of onValue.
     const listener = callsRef.on('value', (snapshot) => {
       const calls = snapshot.val();
       if (calls) {
@@ -256,41 +241,65 @@ const App: React.FC = () => {
           setIncomingCall({ ...callData, id: callId });
         } else if (isBlocked) {
           // Auto-reject
-          // FIX: Use compat version of ref and remove.
           db.ref(`calls/${user.uid}/${callId}`).remove();
         }
       } else {
         setIncomingCall(null);
       }
     });
-
-    // FIX: Use compat version of off.
     return () => callsRef.off('value', listener);
   }, [user, profile, currentNavigationState.view]);
+
+  const handleCallStateChange = useCallback((state: 'connected' | 'disconnected') => {
+    setNavigationStack(stack => {
+      const top = stack[stack.length - 1];
+      if (top.view === 'call') {
+        if (state === 'connected' && top.activeCall.status !== 'connected') {
+          const newStack = [...stack];
+          newStack[newStack.length - 1] = {
+            ...top,
+            activeCall: { ...top.activeCall, status: 'connected' }
+          };
+          return newStack;
+        } else if (state === 'disconnected' && top.activeCall.status !== 'ended') {
+          const newStack = [...stack];
+          newStack[newStack.length - 1] = {
+            ...top,
+            activeCall: { ...top.activeCall, status: 'ended' }
+          };
+          return newStack;
+        }
+      }
+      return stack;
+    });
+  }, []);
 
   const handleStartCall = async (partner: Contact, type: 'video' | 'voice') => {
     if (!user || !profile) return;
 
-    const { activeCall: newActiveCall, unsubscribers } = await startOutgoingCall(user, profile, partner, type, db, peerConnectionRef, setLocalStream, setRemoteStream, cleanupWebRTC);
+    const { activeCall: newActiveCall, unsubscribers } = await startOutgoingCall(user, profile, partner, type, db, peerConnectionRef, setLocalStream, setRemoteStream, cleanupWebRTC, handleCallStateChange);
     if (newActiveCall && unsubscribers) {
       pushView({ view: 'call', activeCall: newActiveCall });
       callListenersRef.current = unsubscribers;
+    } else {
+      alert("Unable to start call. Please ensure microphone and camera permissions are granted.");
     }
   };
 
   const handleAcceptCall = async () => {
     if (!incomingCall || !user || !profile) return;
     setIncomingCall(null);
-    const { activeCall: newActiveCall, unsubscribers } = await acceptIncomingCall(user, profile, incomingCall, db, peerConnectionRef, setLocalStream, setRemoteStream, cleanupWebRTC);
+    const { activeCall: newActiveCall, unsubscribers } = await acceptIncomingCall(user, profile, incomingCall, db, peerConnectionRef, setLocalStream, setRemoteStream, cleanupWebRTC, handleCallStateChange);
     if (newActiveCall && unsubscribers) {
       pushView({ view: 'call', activeCall: newActiveCall });
       callListenersRef.current = unsubscribers;
+    } else {
+      alert("Unable to accept call. Please ensure microphone and camera permissions are granted.");
     }
   };
 
   const handleRejectCall = () => {
     if (incomingCall && user) {
-      // FIX: Use compat version of ref and remove.
       db.ref(`calls/${user.uid}/${incomingCall.id}`).remove();
       setIncomingCall(null);
     }
@@ -426,8 +435,8 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="bg-gray-200 dark:bg-gray-900 flex items-center justify-center w-screen h-screen">
-      <div className="bg-gray-100 dark:bg-black w-full h-full max-w-md max-h-[950px] shadow-2xl rounded-lg overflow-hidden flex flex-col relative">
+    <div className={`${theme === 'glass' ? 'bg-transparent' : 'bg-gray-200 dark:bg-gray-900'} flex items-center justify-center w-screen h-screen`}>
+      <div className={`${theme === 'glass' ? 'bg-transparent shadow-none border-none' : 'bg-gray-100 dark:bg-black shadow-2xl'} w-full h-full max-w-md max-h-[950px] rounded-lg overflow-hidden flex flex-col relative`}>
         {renderContent()}
       </div>
       {showExitToast && (

@@ -1,5 +1,4 @@
 
-// FIX: Use firebase v9 compat imports to resolve module errors.
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/database';
@@ -17,8 +16,6 @@ const firebaseConfig = {
   appId: "1:252562150408:web:376c343f99f8a0c3442dbd",
   measurementId: "G-8JCCFDQYE4"
 };
-
-// FIX: Initialize Firebase using the compat library.
 const app: firebase.app.App = firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.database();

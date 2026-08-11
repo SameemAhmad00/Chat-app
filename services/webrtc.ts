@@ -20,7 +20,8 @@ export const startOutgoingCall = async (
   pcRef: PeerConnectionRef,
   setLocalStream: (stream: MediaStream | null) => void,
   setRemoteStream: (stream: MediaStream | null) => void,
-  cleanup: () => void
+  cleanup: () => void,
+  onCallStateChange: (state: 'connected' | 'disconnected') => void
 ): Promise<{ activeCall: ActiveCall | null; unsubscribers: (() => void)[] }> => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia(
@@ -47,10 +48,14 @@ export const startOutgoingCall = async (
     stream.getTracks().forEach(track => pcRef.current?.addTrack(track, stream));
 
     pcRef.current.ontrack = (event) => {
-      setRemoteStream(event.streams[0]);
+      if (event.streams && event.streams[0]) {
+        setRemoteStream(event.streams[0]);
+      } else {
+        const fallbackStream = new MediaStream();
+        fallbackStream.addTrack(event.track);
+        setRemoteStream(fallbackStream);
+      }
     };
-
-    const unsubscribers = setupCallListeners(callId, newActiveCall, db, pcRef);
 
     const offer = await pcRef.current.createOffer();
     await pcRef.current.setLocalDescription(offer);
@@ -60,10 +65,12 @@ export const startOutgoingCall = async (
       from: user.uid,
       fromUsername: profile.username,
       fromPhotoURL: profile.photoURL || null,
-      offer,
+      offer: { type: offer.type, sdp: offer.sdp },
       ts: firebase.database.ServerValue.TIMESTAMP as any,
     };
     await db.ref(`calls/${partner.uid}/${callId}`).set(callPayload);
+
+    const unsubscribers = setupCallListeners(callId, newActiveCall, user.uid, db, pcRef, onCallStateChange);
     
     return { activeCall: newActiveCall, unsubscribers };
 
@@ -82,7 +89,8 @@ export const acceptIncomingCall = async (
   pcRef: PeerConnectionRef,
   setLocalStream: (stream: MediaStream | null) => void,
   setRemoteStream: (stream: MediaStream | null) => void,
-  cleanup: () => void
+  cleanup: () => void,
+  onCallStateChange: (state: 'connected' | 'disconnected') => void
 ): Promise<{ activeCall: ActiveCall | null; unsubscribers: (() => void)[] }> => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia(
@@ -111,16 +119,22 @@ export const acceptIncomingCall = async (
     stream.getTracks().forEach(track => pcRef.current?.addTrack(track, stream));
 
     pcRef.current.ontrack = (event) => {
-      setRemoteStream(event.streams[0]);
+      if (event.streams && event.streams[0]) {
+        setRemoteStream(event.streams[0]);
+      } else {
+        const fallbackStream = new MediaStream();
+        fallbackStream.addTrack(event.track);
+        setRemoteStream(fallbackStream);
+      }
     };
     
-    const unsubscribers = setupCallListeners(incomingCall.id, newActiveCall, db, pcRef);
+    const unsubscribers = setupCallListeners(incomingCall.id, newActiveCall, user.uid, db, pcRef, onCallStateChange);
 
     await pcRef.current.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
     const answer = await pcRef.current.createAnswer();
     await pcRef.current.setLocalDescription(answer);
 
-    await db.ref(`calls/${user.uid}/${incomingCall.id}/answer`).set(answer);
+    await db.ref(`calls/${user.uid}/${incomingCall.id}/answer`).set({ type: answer.type, sdp: answer.sdp });
 
     return { activeCall: newActiveCall, unsubscribers };
     
@@ -134,8 +148,10 @@ export const acceptIncomingCall = async (
 export const setupCallListeners = (
   callId: string,
   activeCall: ActiveCall,
+  currentUserId: string,
   db: Database,
-  pcRef: PeerConnectionRef
+  pcRef: PeerConnectionRef,
+  onCallStateChange: (state: 'connected' | 'disconnected') => void
 ): (() => void)[] => {
   const pc = pcRef.current;
   if (!pc) return [];
@@ -148,13 +164,30 @@ export const setupCallListeners = (
       iceCandidateRef.push(event.candidate.toJSON());
     }
   };
+
+  const handleConnectionChange = () => {
+    const connState = pc.connectionState;
+    const iceState = pc.iceConnectionState;
+
+    if (connState === 'connected' || iceState === 'connected' || iceState === 'completed') {
+      onCallStateChange('connected');
+    } else if (
+      connState === 'disconnected' || connState === 'failed' || connState === 'closed' ||
+      iceState === 'disconnected' || iceState === 'failed' || iceState === 'closed'
+    ) {
+      onCallStateChange('disconnected');
+    }
+  };
+
+  pc.onconnectionstatechange = handleConnectionChange;
+  pc.oniceconnectionstatechange = handleConnectionChange;
   
   const remoteRole = activeCall.role === 'caller' ? 'callee' : 'caller';
   const remoteIceCandidateRef = db.ref(`iceCandidates/${callId}/${remoteRole}`);
   const iceCandidatesQueue: RTCIceCandidateInit[] = [];
   
   const processIceQueue = () => {
-    if (pc.remoteDescription) {
+    if (pc.remoteDescription && pc.remoteDescription.type) {
       while (iceCandidatesQueue.length > 0) {
         const candidate = iceCandidatesQueue.shift();
         if (candidate) {
@@ -171,10 +204,12 @@ export const setupCallListeners = (
   const iceCallback = (snapshot: firebase.database.DataSnapshot) => {
     if (snapshot.exists()) {
       const candidate = snapshot.val();
-      if (pc.remoteDescription) {
-        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding ICE candidate:", e));
-      } else {
-        iceCandidatesQueue.push(candidate);
+      if (candidate && (candidate.candidate !== undefined || candidate.sdpMid !== undefined)) {
+        if (pc.remoteDescription && pc.remoteDescription.type) {
+          pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding ICE candidate:", e));
+        } else {
+          iceCandidatesQueue.push(candidate);
+        }
       }
     }
   };
@@ -199,6 +234,23 @@ export const setupCallListeners = (
     answerRef.on('value', answerCallback);
     unsubscribers.push(() => answerRef.off('value', answerCallback));
   }
+
+  // Listen to the call document to detect when the remote user hangs up or cancels
+  const targetCalleeUid = activeCall.role === 'caller' ? activeCall.partner.uid : currentUserId;
+  const callDocRef = db.ref(`calls/${targetCalleeUid}/${callId}`);
+  let isInitialDocCheck = true;
+  const callDocCallback = (snapshot: firebase.database.DataSnapshot) => {
+    if (isInitialDocCheck) {
+      isInitialDocCheck = false;
+      return;
+    }
+    if (!snapshot.exists()) {
+      // Remote user deleted the call node (hung up or rejected)
+      onCallStateChange('disconnected');
+    }
+  };
+  callDocRef.on('value', callDocCallback);
+  unsubscribers.push(() => callDocRef.off('value', callDocCallback));
 
   return unsubscribers;
 };

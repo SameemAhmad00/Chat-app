@@ -1,20 +1,21 @@
 
 import React, { createContext, useState, useEffect, useContext } from 'react';
 
-type Theme = 'light' | 'dark';
+type Theme = 'light' | 'dark' | 'glass';
 
 interface ThemeContextType {
   theme: Theme;
-  toggleTheme: () => void;
+  setTheme: (theme: Theme) => void;
+  toggleTheme: () => void; // Keeping for backward compatibility temporarily
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
-  const [theme, setTheme] = useState<Theme>(() => {
+  const [theme, setThemeState] = useState<Theme>(() => {
     const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark' || savedTheme === 'light') {
-      return savedTheme;
+    if (savedTheme === 'dark' || savedTheme === 'light' || savedTheme === 'glass') {
+      return savedTheme as Theme;
     }
     // Fallback to system preference if no theme is saved
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -22,20 +23,32 @@ export const ThemeProvider: React.FC<React.PropsWithChildren<{}>> = ({ children 
 
   useEffect(() => {
     const root = window.document.documentElement;
+    
+    // Clear all theme classes first
+    root.classList.remove('dark', 'glass');
+    
+    // Apply selected theme class
     if (theme === 'dark') {
       root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
+    } else if (theme === 'glass') {
+      root.classList.add('glass');
+      // For some components that rely on dark mode styling internally, we might also want to add dark class when glass is active
+      // But let's keep it strictly 'glass' to allow the CSS to handle both light and dark backgrounds inside glass.
     }
+    
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  const setTheme = (newTheme: Theme) => {
+    setThemeState(newTheme);
+  };
+
   const toggleTheme = () => {
-    setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
+    setThemeState(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
   };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );
